@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "OpenCode provider",
+    "description": "Adds one OpenCode provider to DeepSeek Harness: an import dialog reads the live Zen / Zen Go catalogue, prefills every model's interface and context window, asks only for unknown interfaces, and serves all imported models from a single provider while always sending x-opencode-session."
+  }
+}

@@ -1,0 +1,18 @@
+# OpenCode provider for DeepSeek Harness.
+#
+# The row owns ONE LLM provider route (`provider`, display name "OpenCode")
+# holding every imported model, plus the import dialog's Host endpoints.
+# Override this row in the profile's own patch layer to tune behaviour, e.g.:
+#
+#   - id: opencode
+#     name: dsh-opencode
+#     config:
+#       provider: opencode-live        # route id the plugin registers
+#       displayName: OpenCode          # name shown in the model picker
+#       targets: [opencode-go, opencode]  # gateways read, first wins duplicates
+#       retireShipped: true            # remove the shipped opencode routes
+#       forceSessionHeader: true       # always send x-opencode-session
+#       timeoutMs: 15000               # per HTTP request
+- insert:
+    - id: opencode
+      name: dsh-opencode

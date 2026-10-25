@@ -1,0 +1,66 @@
+{
+  "name": "dsh-opencode",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenCode provider for DeepSeek Harness: one plugin-owned LLM provider with a Models-page import dialog that reads the live OpenCode catalogue, prefills each model's interface and context window, and dispatches mixed wire protocols while always sending x-opencode-session.",
+  "license": "Apache-2.0",
+  "author": "Baranov Grigoriy Vladimirovich",
+  "homepage": "https://github.com/WatchDG/dsh-opencode#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WatchDG/dsh-opencode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/WatchDG/dsh-opencode/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "opencode",
+    "opencode-zen",
+    "model-import",
+    "cordis"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib/*.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "README.ru.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "pack:check": "npm pack --dry-run"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings-models"
+      ]
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "~3.18.5",
+    "@earendil-works/pi-ai": "1.1.0"
+  }
+}
