@@ -1,9 +1,9 @@
 {
   "name": "dsh-opencode",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "OpenCode provider for DeepSeek Harness: one plugin-owned LLM provider with a Models-page import dialog that reads the live OpenCode catalogue, prefills each model's interface and context window, and dispatches mixed wire protocols while always sending x-opencode-session.",
+  "description": "OpenCode provider for DeepSeek Harness: one plugin-owned LLM provider with a Models-page import dialog that reads the live OpenCode catalogue, prefills each model's interface and context window, dispatches mixed wire protocols while always sending x-opencode-session, and forwards attached images to image-capable models.",
   "license": "Apache-2.0",
   "author": "Baranov Grigoriy Vladimirovich",
   "homepage": "https://github.com/WatchDG/dsh-opencode#readme",

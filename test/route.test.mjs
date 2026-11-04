@@ -1,10 +1,10 @@
-﻿import assert from 'node:assert/strict'
+import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { CATALOGUE_PATH, ENABLED_PATH, IMPORT_PATH, MODEL_PATH, STATUS_PATH, mount } from '../lib/plugin.js'
+import { CATALOGUE_PATH, ENABLED_PATH, IMPORT_PATH, MODEL_PATH, STATUS_PATH, imageAccessResolver, mount } from '../lib/plugin.js'
 
 const PI_AI = '@deepseek-ai/dsh-llm-pi-ai'
 
@@ -492,5 +492,32 @@ describe('host routes', () => {
     assert.equal(body.registered, true)
     assert.equal(body.stored, 0)
     assert.equal(body.last, null)
+  })
+})
+
+describe('image access wiring', () => {
+  it('maps a durable image into the tool execution world when services allow', () => {
+    const fs = { processPathFromHostPath: (hostPath) => `/work/${hostPath.split('/').at(-1)}` }
+    const resolve = imageAccessResolver({ get: (name) => (name === 'fs' ? fs : undefined) })
+    const attachments = { imageHostPath: () => '/home/u/.dsh/attachments/v1/objects/aa/object' }
+    assert.deepEqual(resolve(attachments, { attachmentId: 'sha256:1' }), { readonlyPath: '/work/object' })
+  })
+
+  it('omits the path when the reference or the filesystem mapping is unavailable', () => {
+    const withoutFs = imageAccessResolver({ get: () => undefined })
+    assert.equal(withoutFs({ imageHostPath: () => '/host/object' }, {}), undefined)
+    assert.equal(withoutFs({ imageHostPath: () => undefined }, {}), undefined)
+    // A backend without host files and a reference that cannot be resolved are
+    // both non-fatal: handle text simply omits the path.
+    assert.equal(withoutFs({}, {}), undefined)
+    assert.equal(withoutFs(undefined, {}), undefined)
+    const throwingFs = imageAccessResolver({
+      get: () => {
+        throw new Error('no fs service')
+      },
+    })
+    assert.equal(throwingFs({ imageHostPath: () => '/host/object' }, {}), undefined)
+    const unmapped = imageAccessResolver({ get: () => ({ processPathFromHostPath: () => undefined }) })
+    assert.equal(unmapped({ imageHostPath: () => '/host/object' }, {}), undefined)
   })
 })

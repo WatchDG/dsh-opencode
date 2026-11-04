@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.3.0
+
+Image support: an imported model whose input types include `image` now receives
+attached images instead of failing the turn with `UNSUPPORTED_CONTENT`.
+
+- Durable image references from session history (user and tool messages) are
+  projected through the harness attachment service into deterministic
+  route-sized request versions: aspect-preserving dimensions inside
+  `requestImageMaxPixels` (default 4 Mi pixels) and re-encoded bytes inside
+  `requestImageMaxBytes` (default 1 MiB). The service caches the version per
+  reference and target, so repeated turns reuse one projection.
+- Each image travels with the same stable model-facing handle the shipped
+  pi-ai adapter uses (`Image <name> (<sha256>); request preview <w>x<h>px.`),
+  plus the read-only path of the normalized copy when the deployment maps
+  attachment host paths into the tool execution world.
+- Occurrences the harness marked `offloaded` become placeholder text. A request
+  whose retained images exceed `maxRequestImageBytes` (default 20 MiB of base64)
+  fails with `IMAGE_OFFLOAD_REQUIRED` and the number of additional oldest
+  occurrences to omit, so `dsh-compaction-image-offload` records the decision in
+  the session and retries. Set the field to `0` to disable the bound.
+- An image reference whose bytes cannot be derived (for example a session moved
+  from a deployment that stored attachments elsewhere) is replaced with a
+  placeholder naming the unreadable attachment instead of failing the turn. The
+  attachment service is required only while a live image must be read, so an
+  already-offloaded history renders placeholders (and the normalized copy's
+  read-only path when the deployment can map it) without it. Images in assistant
+  or system/developer messages remain `UNSUPPORTED_CONTENT`, because pi-ai's chat
+  replay cannot represent them; a text-only model keeps receiving the harness's
+  own placeholders.
+- `imageRequestTarget` now reports the real request projection (fitted
+  dimensions and the encoded-byte budget) instead of echoing the source image.
+- New route-wide config fields `requestImageMaxPixels`, `requestImageMaxBytes`
+  and `maxRequestImageBytes`; new `lib/images.js` module and image unit tests
+  (the suite now has 80 tests).
+
 ## 0.2.0
 
 Per-model **input types**: the model settings editor can now declare whether a

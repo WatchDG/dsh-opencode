@@ -2,11 +2,13 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import {
+  buildContext,
   buildPiModel,
   createAdapter,
   settingsHeaders,
   shippedModel,
   toPiContext,
+  toPiContextWithImages,
   toStreamChunks,
 } from '../lib/adapter.js'
 import { normalizeConfig } from '../lib/config.js'
@@ -27,6 +29,49 @@ const settings = normalizeConfig({
     },
   ],
 })
+
+/** One durable image reference with the stored shape. */
+function imageRef(overrides = {}) {
+  return {
+    attachmentId: `sha256:${'a'.repeat(64)}`,
+    mediaType: 'image/png',
+    bytes: 3,
+    width: 4000,
+    height: 3000,
+    ...overrides,
+  }
+}
+
+/** Fake durable attachment service recording every projection request. */
+function attachmentsFor() {
+  const calls = []
+  return {
+    calls,
+    imageHostPath: (ref) => `/host/${String(ref.attachmentId).slice(7, 15)}.png`,
+    async readImageRequest(ref, target) {
+      calls.push({ ref, target })
+      return {
+        variantId: 'sha256:variant',
+        attachment: ref,
+        data: new Uint8Array([1, 2, 3]),
+        mediaType: 'image/png',
+        bytes: 3,
+        width: target.width,
+        height: target.height,
+        depth: 'uchar',
+        space: 'srgb',
+        hasAlpha: false,
+      }
+    },
+  }
+}
+
+/** Drain one adapter stream into its chunks. */
+async function drain(adapter, options) {
+  const chunks = []
+  for await (const chunk of adapter.stream(options)) chunks.push(chunk)
+  return chunks
+}
 
 describe('adapter', () => {
   it('reuses shipped catalogue metadata for a known id', () => {
@@ -132,10 +177,225 @@ describe('adapter', () => {
     assert.equal(toolResult.content[0].text, 'file body')
   })
 
-  it('refuses image content honestly', () => {
+  it('keeps the text-only conversion path image-free', () => {
     assert.throws(
-      () => toPiContext({ messages: [{ role: 'user', content: [{ type: 'image', attachment: {} }] }] }),
-      /does not forward image content/,
+      () => toPiContext({ messages: [{ role: 'user', content: [{ type: 'image', attachment: imageRef() }] }] }),
+      /text-only context cannot carry image content/,
+    )
+  })
+
+  it('projects durable image references into pi-ai request content', async () => {
+    const attachments = attachmentsFor()
+    const context = await toPiContextWithImages(
+      {
+        messages: [
+          { role: 'user', content: [{ type: 'text', text: 'look' }, { type: 'image', attachment: imageRef() }] },
+          {
+            role: 'assistant',
+            source: { provider: 'opencode-live', model: 'fresh-model' },
+            content: [{ type: 'tool-call', id: 'call-1', name: 'read', arguments: '{}' }],
+          },
+          {
+            role: 'tool',
+            toolCallId: 'call-1',
+            content: [{ type: 'image', attachment: imageRef({ attachmentId: `sha256:${'b'.repeat(64)}` }) }],
+          },
+        ],
+      },
+      { attachments, resolveImageAccess: () => ({ readonlyPath: '/work/shot.png' }) },
+    )
+    const user = context.messages[0]
+    assert.ok(Array.isArray(user.content))
+    assert.deepEqual(user.content[0], { type: 'text', text: 'look' })
+    assert.match(user.content[1].text, /^Image sha256:a{64}; request preview 2364x1773px\./)
+    assert.ok(user.content[1].text.includes('Normalized copy (read-only'))
+    assert.deepEqual(user.content[2], { type: 'image', data: 'AQID', mimeType: 'image/png' })
+    const toolResult = context.messages[2]
+    assert.equal(toolResult.role, 'toolResult')
+    assert.equal(toolResult.content[0].type, 'text')
+    assert.deepEqual(toolResult.content[1], { type: 'image', data: 'AQID', mimeType: 'image/png' })
+    assert.equal(attachments.calls.length, 2)
+    for (const call of attachments.calls) {
+      assert.deepEqual(call.target, { width: 2364, height: 1773, maxBytes: 1_048_576 })
+    }
+  })
+
+  it('projects an offloaded occurrence to placeholder text only', async () => {
+    const attachments = attachmentsFor()
+    const context = await toPiContextWithImages(
+      {
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: 'a' }, { type: 'image', attachment: imageRef(), offloaded: true }],
+          },
+        ],
+      },
+      { attachments },
+    )
+    assert.equal(typeof context.messages[0].content, 'string')
+    assert.match(context.messages[0].content, /^a\[image omitted to fit request image limits;/)
+    assert.equal(attachments.calls.length, 0)
+  })
+
+  it('converts an all-offloaded history without the attachment service', async () => {
+    const context = await toPiContextWithImages(
+      {
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: 'a' }, { type: 'image', attachment: imageRef(), offloaded: true }],
+          },
+        ],
+      },
+      { attachments: undefined },
+    )
+    assert.equal(typeof context.messages[0].content, 'string')
+    assert.match(context.messages[0].content, /image omitted to fit request image limits/)
+  })
+
+  it('fails an over-budget image request with the offload count', async () => {
+    const error = await toPiContextWithImages(
+      { messages: [{ role: 'user', content: [{ type: 'image', attachment: imageRef() }] }] },
+      { attachments: attachmentsFor(), maxRequestImageBytes: 1 },
+    ).catch((caught) => caught)
+    assert.equal(error.code, 'IMAGE_OFFLOAD_REQUIRED')
+    assert.equal(error.failure.offloadImages, 1)
+    assert.match(error.message, /exceed the 1-byte base64 bound/)
+  })
+
+  it('refuses images outside user and tool messages', async () => {
+    await assert.rejects(
+      toPiContextWithImages(
+        { messages: [{ role: 'assistant', content: [{ type: 'image', attachment: imageRef() }] }] },
+        { attachments: attachmentsFor() },
+      ),
+      /cannot represent an image in an in-history assistant message/,
+    )
+  })
+
+  it('reports the route request-image target', () => {
+    const adapter = createAdapter({ getSettings: () => settings, resolveApiKey: async () => undefined })
+    assert.deepEqual(adapter.imageRequestTarget('opencode-live', 'fresh-model', imageRef()), {
+      width: 2364,
+      height: 1773,
+      maxBytes: 1_048_576,
+    })
+    assert.throws(() => adapter.imageRequestTarget('someone-else', 'fresh-model', imageRef()), /does not own provider/)
+  })
+
+  it('refuses an image request when the attachment service is unavailable', async () => {
+    const adapter = createAdapter({ getSettings: () => settings, resolveApiKey: async () => undefined })
+    await assert.rejects(
+      drain(adapter, {
+        provider: 'opencode-live',
+        model: 'fresh-model',
+        messages: [{ role: 'user', content: [{ type: 'image', attachment: imageRef() }] }],
+      }),
+      /image input requires the durable attachment service/,
+    )
+  })
+
+  it('raises the offload failure from the adapter stream before dispatch', async () => {
+    const constrained = normalizeConfig({
+      maxRequestImageBytes: 1,
+      models: [
+        {
+          id: 'fresh-model',
+          name: 'Fresh',
+          api: 'openai-responses',
+          source: 'opencode-go',
+          input: ['text', 'image'],
+        },
+      ],
+    })
+    const adapter = createAdapter({
+      getSettings: () => constrained,
+      resolveApiKey: async () => undefined,
+      getAttachments: () => attachmentsFor(),
+    })
+    const error = await drain(adapter, {
+      provider: 'opencode-live',
+      model: 'fresh-model',
+      messages: [{ role: 'user', content: [{ type: 'image', attachment: imageRef() }] }],
+    }).catch((caught) => caught)
+    assert.equal(error.code, 'IMAGE_OFFLOAD_REQUIRED')
+    assert.equal(error.failure.offloadImages, 1)
+  })
+
+  it('treats a zero request budget as no bound', async () => {
+    const context = await toPiContextWithImages(
+      { messages: [{ role: 'user', content: [{ type: 'image', attachment: imageRef() }] }] },
+      { attachments: attachmentsFor(), maxRequestImageBytes: 0 },
+    )
+    assert.ok(Array.isArray(context.messages[0].content))
+    assert.equal(context.messages[0].content[1].type, 'image')
+  })
+
+  it('keeps the normalized image path for an all-offloaded history', async () => {
+    const attachments = attachmentsFor()
+    const context = await buildContext(
+      { messages: [{ role: 'user', content: [{ type: 'image', attachment: imageRef(), offloaded: true }] }] },
+      buildPiModel(settings.models[2], settings, 'opencode-live'),
+      settings,
+      {
+        getAttachments: () => attachments,
+        resolveImageAccess: () => ({ readonlyPath: '/work/shot.png' }),
+      },
+    )
+    assert.equal(typeof context.messages[0].content, 'string')
+    assert.match(context.messages[0].content, /Normalized copy \(read-only/)
+    assert.ok(context.messages[0].content.includes('/work/shot.png'))
+    // No bytes are needed, so the attachment is never projected.
+    assert.equal(attachments.calls.length, 0)
+  })
+
+  it('does not require the attachment service for an all-offloaded history', async () => {
+    const context = await buildContext(
+      { messages: [{ role: 'user', content: [{ type: 'image', attachment: imageRef(), offloaded: true }] }] },
+      buildPiModel(settings.models[2], settings, 'opencode-live'),
+      settings,
+      {},
+    )
+    assert.match(context.messages[0].content, /No local normalized image path is available/)
+  })
+
+  it('treats a zero request-image budget as unbounded in the context builder', async () => {
+    const unbounded = normalizeConfig({
+      maxRequestImageBytes: 0,
+      models: [
+        {
+          id: 'fresh-model',
+          name: 'Fresh',
+          api: 'openai-responses',
+          source: 'opencode-go',
+          input: ['text', 'image'],
+        },
+      ],
+    })
+    const context = await buildContext(
+      { messages: [{ role: 'user', content: [{ type: 'image', attachment: imageRef() }] }] },
+      buildPiModel(unbounded.models[0], unbounded, 'opencode-live'),
+      unbounded,
+      { getAttachments: () => attachmentsFor(), resolveImageAccess: () => undefined },
+    )
+    assert.ok(Array.isArray(context.messages[0].content))
+    assert.equal(context.messages[0].content[1].type, 'image')
+  })
+
+  it('refuses an image for a text-only model', async () => {
+    const adapter = createAdapter({
+      getSettings: () => settings,
+      resolveApiKey: async () => undefined,
+      getAttachments: () => attachmentsFor(),
+    })
+    await assert.rejects(
+      drain(adapter, {
+        provider: 'opencode-live',
+        model: 'glm-5.2',
+        messages: [{ role: 'user', content: [{ type: 'image', attachment: imageRef() }] }],
+      }),
+      /does not support image input/,
     )
   })
 

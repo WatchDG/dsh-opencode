@@ -40,6 +40,9 @@
  *   catalogueTimeoutMs number
  *   cacheDir          string
  *   timeoutMs         number
+ *   requestImageMaxPixels number  pixel budget of one image sent to the model
+ *   requestImageMaxBytes  number  encoded-byte budget of one image
+ *   maxRequestImageBytes  number  base64 budget of all images in one request (0 disables)
  *   models            array     imported model store (written by the dialog)
  */
 
