@@ -1,6 +1,6 @@
 {
   "name": "dsh-opencode",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "OpenCode provider for DeepSeek Harness: one plugin-owned LLM provider with a Models-page import dialog that reads the live OpenCode catalogue, prefills each model's interface and context window, and dispatches mixed wire protocols while always sending x-opencode-session.",

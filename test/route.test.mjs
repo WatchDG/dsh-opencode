@@ -374,6 +374,7 @@ describe('host routes', () => {
           api: 'openai-completions',
           contextWindow: 1000000,
           maxTokens: 131072,
+          input: ['text', 'image'],
           source: 'opencode-go',
         },
       ],
@@ -389,6 +390,7 @@ describe('host routes', () => {
       mockResponse(),
     )
     assert.equal(config.models[0].defaults.contextWindow, 1000000)
+    assert.deepEqual(config.models[0].defaults.input, ['text', 'image'])
 
     const modelRoute = routes.find((candidate) => candidate.path === MODEL_PATH)
     const post = async (body) => {
@@ -417,6 +419,17 @@ describe('host routes', () => {
     assert.equal(restored.status, 200)
     assert.equal(restored.body.model.contextWindow, 1000000)
     assert.equal(config.models[0].contextWindow, 1000000)
+    assert.deepEqual(restored.body.model.input, ['text', 'image'])
+
+    // Input types are editable and reach the harness model info.
+    const textOnly = await post({ id: 'glm-5.2', input: ['text'] })
+    assert.equal(textOnly.status, 200)
+    assert.deepEqual(textOnly.body.model.input, ['text'])
+    assert.deepEqual(textOnly.body.model.defaults.input, ['text', 'image'])
+    assert.deepEqual((await adapters[0].adapter.resolveModel('opencode-live', 'glm-5.2')).inputModalities, ['text'])
+    const inputReset = await post({ id: 'glm-5.2', input: null })
+    assert.equal(inputReset.status, 200)
+    assert.deepEqual(inputReset.body.model.input, ['text', 'image'])
 
     // A field-level null resets that field only.
     await post({ id: 'glm-5.2', maxTokens: 4096 })
@@ -430,6 +443,8 @@ describe('host routes', () => {
 
     assert.equal((await post({ id: 'absent', contextWindow: 5 })).status, 400)
     assert.equal((await post({ id: 'glm-5.2', contextWindow: -1 })).status, 400)
+    assert.equal((await post({ id: 'glm-5.2', input: [] })).status, 400)
+    assert.equal((await post({ id: 'glm-5.2', input: ['pdf'] })).status, 400)
     assert.equal((await post({ id: 'glm-5.2' })).status, 400)
     assert.equal((await post({ id: 'glm-5.2', api: 'nope' })).status, 400)
   })

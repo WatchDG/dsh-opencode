@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0
+
+Per-model **input types**: the model settings editor can now declare whether a
+model accepts text, images, or both.
+
+- The per-model gear editor gains **Input types** — `Text` / `Image` checkboxes,
+  at least one required — and saves the selection through
+  `POST /opencode/model`.
+- `POST /opencode/model` accepts an `input` override (a non-empty list of `text`
+  and/or `image`); `null` resets it to the catalogue statement. `GET
+  /opencode/status` and the model-settings answer carry `input` and
+  `defaults.input`, so the editor shows the catalogue default and reset restores
+  it.
+- Imports capture each model's input types in `defaults`, so a re-import
+  refreshes the modalities along with the rest of the catalogue statement.
+
 ## 0.1.0
 
 A single plugin-owned OpenCode provider for DeepSeek Harness, with a live

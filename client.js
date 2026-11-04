@@ -23,10 +23,11 @@
  *                              contextWindow?, maxTokens?, input?, source? }] }
  *                            -> { ok, imported, enabled, updated, removed, retired, models }
  *   POST /opencode/enabled   body { enabled: string[] } -> { ok, enabled, disabled, total }
- *   POST /opencode/model     body { id, reset: true } | { id, contextWindow?, maxTokens?, api? }
+ *   POST /opencode/model     body { id, reset: true } | { id, contextWindow?, maxTokens?,
+ *                                 api?, input? }   (input: ["text"|"image", …] or null)
  *                            -> { ok, model: <row in status.models shape> }
  *   GET  /opencode/status    -> { stored, enabledCount, models: [{ id, name, api, source, enabled,
- *                                 contextWindow, maxTokens, defaults }], registered, registeredAll,
+ *                                 contextWindow, maxTokens, input, defaults }], registered, registeredAll,
  *                                 last, sample }
  *
  * Same-origin, cookie-authenticated routes (the Host gate rejects unknown
@@ -90,6 +91,8 @@ window.__ModuleLoader__.load({
       noStored: 'No models imported yet.',
       enabledHint: 'Newly imported models are enabled by default; manage them below.',
       settings: 'Settings', maxTokens: 'Max tokens', defaultIs: 'default', close: 'Close',
+      inputTypes: 'Input types', textInput: 'Text', imageInput: 'Image',
+      inputRequired: 'Pick at least one input type: text or image.',
       resetModel: 'Reset to defaults', hintEmptyResets: 'An empty field resets that value to its default.',
       defaultsUnknown: 'Catalogue defaults are unknown for this model; reset to defaults is unavailable.',
       invalidNumber: 'Enter a positive number or leave a field empty to reset it.',
@@ -133,6 +136,8 @@ window.__ModuleLoader__.load({
       noStored: 'Импортированных моделей пока нет.',
       enabledHint: 'Импортированные модели включаются по умолчанию; управлять ими можно ниже.',
       settings: 'Настройки', maxTokens: 'Макс. токены', defaultIs: 'по умолчанию', close: 'Закрыть',
+      inputTypes: 'Типы входа', textInput: 'Текст', imageInput: 'Изображение',
+      inputRequired: 'Выберите хотя бы один тип входа: текст или изображение.',
       resetModel: 'Сбросить к стандартным', hintEmptyResets: 'Пустое поле сбрасывает значение к стандартному.',
       defaultsUnknown: 'Стандартные значения каталога для этой модели неизвестны; сброс к стандартным недоступен.',
       invalidNumber: 'Введите положительное число или оставьте поле пустым, чтобы сбросить значение.',
@@ -218,6 +223,9 @@ window.__ModuleLoader__.load({
 .oimp-field{display:flex;flex-direction:column;gap:2px;min-width:0}
 .oimp-field-label{color:var(--dsw-alias-label-secondary);font-size:10px;letter-spacing:.03em;text-transform:uppercase}
 .oimp-field-hint{color:var(--dsw-alias-label-secondary);font-size:10px;line-height:14px}
+.oimp-modalities{display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-height:24px}
+.oimp-modality{display:inline-flex;align-items:center;gap:4px;font-size:11px;cursor:pointer}
+.oimp-modality input{margin:0}
 .oimp-editor-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 `
 
@@ -273,6 +281,12 @@ window.__ModuleLoader__.load({
     /** Human name with the id as a fallback. */
     function modelName(model) {
       return String(typeof model?.name === 'string' && model.name !== '' ? model.name : modelId(model))
+    }
+    /** Input modalities a model declares: known values only, canonical order. */
+    function modelInputs(model) {
+      const list = Array.isArray(model?.input) ? model.input : []
+      const picked = new Set(list.filter((value) => value === 'text' || value === 'image'))
+      return ['text', 'image'].filter((value) => picked.has(value))
     }
     /** A model whose wire protocol the Host already resolved. */
     function isResolved(model) {
@@ -335,10 +349,8 @@ window.__ModuleLoader__.load({
         if (window !== null && window > 0) row.contextWindow = Math.round(window)
         const maxTokens = resolved ? numberOf(model.maxTokens) : null
         if (maxTokens !== null && maxTokens > 0) row.maxTokens = Math.round(maxTokens)
-        if (Array.isArray(model.input)) {
-          const input = model.input.filter((value) => value === 'text' || value === 'image')
-          if (input.length > 0) row.input = input
-        }
+        const input = modelInputs(model)
+        if (input.length > 0) row.input = input
         if (typeof model.source === 'string' && model.source !== '') row.source = model.source
         rows.push(row)
       }
@@ -442,25 +454,33 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Inline per-model settings editor: context window, max tokens and interface
-     * overrides, plus reset to the catalogue defaults the Host captured at
-     * import. Mounted with `key = model id`; only one is open per manage list.
+     * Inline per-model settings editor: context window, max tokens, interface
+     * and input types (text / image) overrides, plus reset to the catalogue
+     * defaults the Host captured at import. Mounted with `key = model id`; only
+     * one is open per manage list.
      */
     function ModelEditor(props) {
       const t = props.t
       const model = props.model
       const defaults = model !== null && typeof model === 'object' && model.defaults !== null && typeof model.defaults === 'object' ? model.defaults : null
       const text = (value) => (value === null || value === undefined ? '' : String(value))
+      const capturedInput = modelInputs(defaults)
+      const defaultsInput = capturedInput.length > 0 ? capturedInput : null
       const [contextText, setContextText] = React.useState(text(model?.contextWindow))
       const [maxTokensText, setMaxTokensText] = React.useState(text(model?.maxTokens))
       const [apiValue, setApiValue] = React.useState(PROTOCOL_OPTIONS.includes(model?.api) ? model.api : '')
+      const [inputDraft, setInputDraft] = React.useState(() => {
+        const current = modelInputs(model)
+        return current.length > 0 ? current : ['text']
+      })
       const [saving, setSaving] = React.useState(false)
       const [error, setError] = React.useState(null)
       const [notice, setNotice] = React.useState(null)
       const name = modelName(model)
       const context = parseOverride(contextText)
       const maxTokens = parseOverride(maxTokensText)
-      const invalid = context.ok !== true || maxTokens.ok !== true || apiValue === ''
+      const numbersInvalid = context.ok !== true || maxTokens.ok !== true
+      const invalid = numbersInvalid || apiValue === '' || inputDraft.length === 0
       const defaultHint = (value) => (value === null || value === undefined ? null : `${t('defaultIs')}: ${String(value)}`)
       const contextHint = defaultHint(defaults?.contextWindow)
       const maxTokensHint = defaultHint(defaults?.maxTokens)
@@ -470,6 +490,18 @@ window.__ModuleLoader__.load({
         setContextText(text(row.contextWindow))
         setMaxTokensText(text(row.maxTokens))
         if (PROTOCOL_OPTIONS.includes(row.api)) setApiValue(row.api)
+        const rowInput = modelInputs(row)
+        if (rowInput.length > 0) setInputDraft(rowInput)
+      }
+      /** Toggle one modality; the empty set is invalid and blocked by Apply. */
+      const toggleInput = (value) => {
+        if (saving === true) return
+        setInputDraft((previous) => {
+          const next = previous.includes(value)
+            ? previous.filter((entry) => entry !== value)
+            : [...previous, value]
+          return ['text', 'image'].filter((entry) => next.includes(entry))
+        })
       }
       const save = (payload) => {
         if (saving === true) return
@@ -480,7 +512,14 @@ window.__ModuleLoader__.load({
           .then((answer) => {
             const updated = answer !== null && typeof answer === 'object' && answer.model !== null && typeof answer.model === 'object' ? answer.model : null
             if (updated !== null) syncFrom(updated)
-            else if (payload.reset === true) syncFrom({ contextWindow: defaults?.contextWindow ?? null, maxTokens: defaults?.maxTokens ?? null, api: defaults?.api ?? null })
+            else if (payload.reset === true) {
+              syncFrom({
+                contextWindow: defaults?.contextWindow ?? null,
+                maxTokens: defaults?.maxTokens ?? null,
+                api: defaults?.api ?? null,
+                input: defaultsInput ?? ['text'],
+              })
+            }
             setNotice(payload.reset === true ? t('modelReset') : t('modelSaved'))
             setSaving(false)
             if (typeof props.onSaved === 'function') props.onSaved()
@@ -492,7 +531,13 @@ window.__ModuleLoader__.load({
       }
       const apply = () => {
         if (saving === true || invalid === true) return
-        save({ id: modelId(model), contextWindow: context.value, maxTokens: maxTokens.value, api: apiValue })
+        save({
+          id: modelId(model),
+          contextWindow: context.value,
+          maxTokens: maxTokens.value,
+          api: apiValue,
+          input: [...inputDraft],
+        })
       }
       const reset = () => {
         if (saving === true || defaults === null) return
@@ -544,9 +589,26 @@ window.__ModuleLoader__.load({
             },
               apiValue === '' ? h('option', { value: '' }, t('pickInterface')) : null,
               PROTOCOL_OPTIONS.map((api) => h('option', { value: api, key: api }, apiText(api)))),
-            apiHint === null ? null : h('span', { className: 'oimp-field-hint' }, apiHint))),
+            apiHint === null ? null : h('span', { className: 'oimp-field-hint' }, apiHint)),
+          h('div', { className: 'oimp-field', role: 'group', 'aria-label': `${t('inputTypes')}: ${name}` },
+            h('span', { className: 'oimp-field-label' }, t('inputTypes')),
+            h('div', { className: 'oimp-modalities' },
+              ['text', 'image'].map((value) =>
+                h('label', { className: 'oimp-modality', key: value },
+                  h('input', {
+                    type: 'checkbox',
+                    checked: inputDraft.includes(value),
+                    disabled: saving,
+                    onChange: () => toggleInput(value),
+                  }),
+                  h('span', null, value === 'image' ? t('imageInput') : t('textInput'))))),
+            defaultsInput === null
+              ? null
+              : h('span', { className: 'oimp-field-hint' }, `${t('defaultIs')}: ${defaultsInput.map((value) => (value === 'image' ? t('imageInput') : t('textInput'))).join(', ')}`))),
         h('p', { className: 'oimp-hint' }, t('hintEmptyResets')),
-        invalid ? h('p', { className: 'oimp-hint', role: 'status' }, t('invalidNumber')) : null,
+        invalid
+          ? h('p', { className: 'oimp-hint', role: 'status' }, numbersInvalid ? t('invalidNumber') : t('inputRequired'))
+          : null,
         defaults === null ? h('p', { className: 'oimp-hint' }, t('defaultsUnknown')) : null,
         error === null ? null : h('p', { className: 'oimp-error', role: 'alert' }, `${t('applyFailed')} ${error}`),
         notice === null ? null : h('p', { className: 'oimp-hint', role: 'status' }, notice),

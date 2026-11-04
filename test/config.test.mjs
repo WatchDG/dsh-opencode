@@ -84,6 +84,7 @@ describe('config', () => {
     assert.deepEqual(filled.input, ['image'])
     assert.equal(filled.source, 'opencode-go')
     assert.equal(filled.enabled, true)
+    assert.deepEqual(normalizeModel({ id: 'e', api: 'openai-completions', input: ['image', 'text', 'image'] }).input, ['text', 'image'])
     assert.equal(normalizeModel({ id: 'd', api: 'openai-completions', enabled: false }).enabled, false)
     assert.equal(normalizeModel({ id: 'c', api: 'google-generative-ai' }), undefined)
     assert.equal(normalizeModel({ id: 'a b', api: 'openai-completions' }), undefined)
@@ -99,7 +100,14 @@ describe('config', () => {
       id: 'glm-5.2',
       api: 'openai-completions',
       contextWindow: 500000,
-      defaults: { contextWindow: 1000000, maxTokens: 131072, api: 'openai-completions', baseURL: 'https://x/v1' },
+      input: ['text', 'image'],
+      defaults: {
+        contextWindow: 1000000,
+        maxTokens: 131072,
+        api: 'openai-completions',
+        baseURL: 'https://x/v1',
+        input: ['image', 'text'],
+      },
     })
     assert.equal(model.contextWindow, 500000)
     assert.deepEqual(model.defaults, {
@@ -107,10 +115,12 @@ describe('config', () => {
       maxTokens: 131072,
       api: 'openai-completions',
       baseURL: 'https://x/v1',
+      input: ['text', 'image'],
     })
     assert.equal(normalizeModel({ id: 'x', api: 'openai-completions' }).defaults, undefined)
     assert.equal(normalizeDefaults({}), undefined)
     assert.deepEqual(normalizeDefaults({ contextWindow: '10', api: 'google-generative-ai' }), { contextWindow: 10 })
+    assert.deepEqual(normalizeDefaults({ input: ['image', 'image', 'pdf'] }), { input: ['image'] })
   })
 
   it('unwraps volatile references on every read', () => {

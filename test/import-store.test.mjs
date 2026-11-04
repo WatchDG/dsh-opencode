@@ -112,6 +112,7 @@ describe('import store', () => {
       baseURL: 'https://opencode.ai/zen/go/v1',
       contextWindow: 1000000,
       maxTokens: 131072,
+      input: ['text'],
     })
     assert.equal(plan.models[0].contextWindow, 1000000)
   })

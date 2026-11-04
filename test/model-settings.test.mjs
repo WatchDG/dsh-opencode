@@ -44,7 +44,8 @@ describe('model settings', () => {
       enabled: true,
       contextWindow: 1000000,
       maxTokens: 131072,
-      defaults: { contextWindow: 1000000, maxTokens: 131072, api: 'openai-completions' },
+      input: ['text'],
+      defaults: { contextWindow: 1000000, maxTokens: 131072, api: 'openai-completions', input: null },
     })
     assert.deepEqual(statusModel(settings.models[1]).defaults, null)
   })
@@ -74,6 +75,49 @@ describe('model settings', () => {
     )
     assert.equal(allReset.models[0].contextWindow, 1000000)
     assert.equal(allReset.models[0].maxTokens, 131072)
+  })
+
+  it('overrides the input types and resets them to the catalogue statement', () => {
+    const withInput = normalizeConfig({
+      ...settings,
+      models: [
+        {
+          ...settings.models[0],
+          input: ['text', 'image'],
+          defaults: { ...settings.models[0].defaults, input: ['text', 'image'] },
+        },
+        settings.models[1],
+      ],
+    })
+    const textOnly = planModelSettings(withInput, { id: 'glm-5.2', input: ['text'] })
+    assert.deepEqual(textOnly.models[0].input, ['text'])
+    assert.deepEqual(textOnly.model.input, ['text'])
+    assert.deepEqual(textOnly.model.defaults.input, ['text', 'image'])
+
+    // Canonical order, duplicates collapsed.
+    const canonical = planModelSettings(withInput, { id: 'glm-5.2', input: ['image', 'text', 'image'] })
+    assert.deepEqual(canonical.models[0].input, ['text', 'image'])
+
+    // A field-level null and a full reset both restore the catalogue statement.
+    const fieldReset = planModelSettings(
+      normalizeConfig({ ...withInput, models: textOnly.models }),
+      { id: 'glm-5.2', input: null },
+    )
+    assert.deepEqual(fieldReset.models[0].input, ['text', 'image'])
+    const allReset = planModelSettings(
+      normalizeConfig({ ...withInput, models: textOnly.models }),
+      { id: 'glm-5.2', reset: true },
+    )
+    assert.deepEqual(allReset.models[0].input, ['text', 'image'])
+  })
+
+  it('rejects malformed input types and treats legacy rows as text-only', () => {
+    assert.throws(() => planModelSettings(settings, { id: 'glm-5.2', input: [] }), /at least one/)
+    assert.throws(() => planModelSettings(settings, { id: 'glm-5.2', input: ['pdf'] }), /unknown input type/)
+    assert.throws(() => planModelSettings(settings, { id: 'glm-5.2', input: 'text' }), /array of "text" and "image"/)
+    // Rows imported before input types were captured reset to the text default.
+    assert.deepEqual(planModelSettings(settings, { id: 'glm-5.2', reset: true }).models[0].input, ['text'])
+    assert.deepEqual(planModelSettings(settings, { id: 'glm-5.2', input: null }).models[0].input, ['text'])
   })
 
   it('rewrites the endpoint when the interface changes', () => {

@@ -56,7 +56,8 @@ stored.
    an enabled model is routed through the OpenCode Go subscription or through
    Zen — and curate one family at a time: *Enable all / Disable all* act on the
    rows currently visible. Each model also has a **gear button**: it opens an
-   inline editor for **context window**, **max output tokens** and **interface**.
+   inline editor for **context window**, **max output tokens**, **interface** and
+   **input types** (**Text** / **Image** checkboxes; at least one is required).
    Empty fields reset that value, and **Reset to defaults** restores everything
    from the catalogue statement captured at import time (`defaults`); the editor
    shows those defaults next to the inputs. The manager's **Apply** saves the
@@ -136,18 +137,20 @@ Same-origin, cookie-authenticated routes:
   `{ ok, enabled, disabled, total }`. Everything imported but not listed becomes
   disabled; nothing is deleted.
 - `POST /opencode/model` — per-model settings. `{ id, reset: true }` restores the
-  context window, output cap and interface captured in the row's `defaults`;
-  `{ id, contextWindow?, maxTokens?, api? }` sets overrides, where `null` resets
-  one field to its default (an interface change rewrites `baseURL` from the
-  gateway root). Returns `{ ok, model }` with the row in status shape.
+  context window, output cap, interface and input types captured in the row's
+  `defaults`; `{ id, contextWindow?, maxTokens?, api?, input? }` sets overrides,
+  where `null` resets one field to its default (an interface change rewrites
+  `baseURL` from the gateway root; `input` is a non-empty list of `text` and/or
+  `image`). Returns `{ ok, model }` with the row in status shape.
 - `GET /opencode/status` → provider state, the full stored model list with
-  `source`, `enabled`, effective `contextWindow` / `maxTokens` and the `defaults`
-  snapshot, `stored` / `enabledCount`, registered provider ids, a resolved sample
+  `source`, `enabled`, effective `contextWindow` / `maxTokens`, `input` (what the
+  model accepts: `text`, `image` or both) and the `defaults` snapshot,
+  `stored` / `enabledCount`, registered provider ids, a resolved sample
   of the first enabled model, and the last import.
 
 ## Verification
 
-- `npm test` — 48 unit tests, no network.
+- `npm test` — 50 unit tests, no network.
 - Live probe of the adapter (one provider, three protocols, real OpenCode Go
   key): OpenAI Chat Completions (`glm-5.2`), Anthropic Messages
   (`claude-haiku-5-5`) and OpenAI Responses (`gpt-6-luna`) all streamed
