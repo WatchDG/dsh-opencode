@@ -57,7 +57,7 @@ window.__ModuleLoader__.load({
     /** Last successful import mirrored in this browser. */
     const STORAGE_KEY = 'dsh-opencode:last-import'
     /** Context-window default prefilled for models with no recognized interface. */
-    const DEFAULT_CONTEXT = 262144
+    const DEFAULT_CONTEXT = 1000000
 
     /** English copy. */
     const en = {
@@ -154,10 +154,11 @@ window.__ModuleLoader__.load({
       'openai-completions': 'Chat Completions',
       'openai-responses': 'Responses',
       'anthropic-messages': 'Anthropic Messages',
+      'google-generative-ai': 'Google Generative AI',
     }
 
     /** Interfaces the per-model override select offers. */
-    const PROTOCOL_OPTIONS = ['openai-completions', 'openai-responses', 'anthropic-messages']
+    const PROTOCOL_OPTIONS = ['openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai']
 
     /** Page-local styles; theme tokens only (no literal colors). */
     const CSS = `

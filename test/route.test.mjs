@@ -8,6 +8,13 @@ import { CATALOGUE_PATH, ENABLED_PATH, IMPORT_PATH, MODEL_PATH, STATUS_PATH, ima
 
 const PI_AI = '@deepseek-ai/dsh-llm-pi-ai'
 
+/**
+ * Per-test directory the catalogue cache is written to. The plugin falls back
+ * to the profile directory when `cacheDir` is empty, so a test that left it
+ * unset would write fixture metadata into the live profile.
+ */
+let testCacheDir = ''
+
 const catalogue = {
   'opencode-go': {
     name: 'OpenCode Go',
@@ -16,6 +23,11 @@ const catalogue = {
         name: 'Mini Dev Only',
         limit: { context: 123456, output: 4096 },
         provider: { api: 'https://opencode.ai/inference/openai/v1' },
+      },
+      'gemini-4-argon': {
+        name: 'Gemini 4 Argon',
+        limit: { context: 1048576, output: 65536 },
+        provider: { npm: '@ai-sdk/google' },
       },
     },
   },
@@ -53,7 +65,7 @@ function applyOp(root, op) {
 
 /** Fake harness context + services for the mount. */
 function harness({ providers = {}, key = 'test-key', rejection = undefined } = {}) {
-  const config = { models: [] }
+  const config = { models: [], cacheDir: testCacheDir }
   const llmProviders = structuredClone(providers)
   const mutations = []
   const adapters = []
@@ -129,7 +141,7 @@ function stubFetch(calls = []) {
   globalThis.fetch = async (url, init) => {
     calls.push({ url: String(url), headers: init?.headers })
     if (String(url).includes('models.dev')) return new Response(JSON.stringify(catalogue), { status: 200 })
-    if (String(url).endsWith('/zen/go/v1/models')) {
+    if (String(url).includes('/go/v1/models')) {
       return new Response(
         JSON.stringify({
           data: [
@@ -139,12 +151,13 @@ function stubFetch(calls = []) {
             { id: 'test' },
             { id: 'qwen3.7-max' },
             { id: 'omen-alpha' },
+            { id: 'gemini-4-argon' },
           ],
         }),
         { status: 200 },
       )
     }
-    if (String(url).endsWith('/zen/v1/models')) {
+    if (String(url).endsWith('/v1/models')) {
       return new Response(JSON.stringify({ data: [{ id: 'mimo-v2.5' }] }), { status: 200 })
     }
     throw new Error(`unexpected URL ${url}`)
@@ -158,10 +171,10 @@ describe('host routes', () => {
   let cacheDir
   beforeEach(() => {
     cacheDir = mkdtempSync(join(tmpdir(), 'dsh-opencode-route-'))
-    process.env.DSH_OPENCODE_TEST_CACHE = cacheDir
+    testCacheDir = cacheDir
   })
   afterEach(() => {
-    delete process.env.DSH_OPENCODE_TEST_CACHE
+    testCacheDir = ''
     rmSync(cacheDir, { recursive: true, force: true })
   })
 
@@ -202,7 +215,7 @@ describe('host routes', () => {
       assert.equal(res.statusCode, 200)
       const body = JSON.parse(res.body)
       assert.equal(body.ok, true)
-      assert.equal(body.fetched, 6)
+      assert.equal(body.fetched, 7)
       const byId = new Map(body.models.map((model) => [model.id, model]))
       assert.equal(byId.get('glm-5.2').resolved, true)
       assert.equal(byId.get('glm-5.2').api, 'openai-completions')
@@ -220,18 +233,25 @@ describe('host routes', () => {
       assert.equal(byId.get('qwen3.7-max').contextWindow, 1_000_000)
       assert.equal(byId.get('qwen3.7-max').maxTokens, 65_536)
       assert.equal(byId.get('qwen3.7-max').name, 'Qwen3.7 Max')
-      assert.equal(byId.get('qwen3.7-max').baseURL, 'https://opencode.ai/zen/go')
+      assert.equal(byId.get('qwen3.7-max').baseURL, 'https://opencode.ai/inference/go')
       assert.equal(byId.get('omen-alpha').resolved, true)
       assert.equal(byId.get('omen-alpha').api, 'openai-completions')
       assert.equal(byId.get('omen-alpha').contextWindow, 500_000)
       assert.equal(byId.get('omen-alpha').maxTokens, 128_000)
-      assert.equal(byId.get('omen-alpha').baseURL, 'https://opencode.ai/zen/go/v1')
+      assert.equal(byId.get('omen-alpha').baseURL, 'https://opencode.ai/inference/go/v1')
+      // pi-ai 1.3.0 serves Google Generative AI from both OpenCode providers,
+      // so a Gemini model is importable instead of being dropped.
+      assert.equal(byId.get('gemini-4-argon').resolved, true)
+      assert.equal(byId.get('gemini-4-argon').api, 'google-generative-ai')
+      assert.equal(byId.get('gemini-4-argon').apiLabel, 'Google Generative AI')
+      assert.equal(byId.get('gemini-4-argon').baseURL, 'https://opencode.ai/inference/go/v1')
       assert.deepEqual(body.unknown, ['brand-new-model'])
-      assert.equal(body.fetched, 6)
+      assert.equal(body.fetched, 7)
       assert.deepEqual(body.presets.map((preset) => preset.api), [
         'openai-completions',
         'openai-responses',
         'anthropic-messages',
+        'google-generative-ai',
       ])
     } finally {
       restore()
@@ -283,8 +303,8 @@ describe('host routes', () => {
     assert.deepEqual(body.retired.sort(), ['opencode', 'opencode-go', 'opencode-live-anthropic'])
 
     assert.deepEqual(config.models.map((model) => model.id), ['glm-5.2', 'brand-new-model'])
-    assert.equal(config.models[0].baseURL, 'https://opencode.ai/zen/go/v1')
-    assert.equal(config.models[1].baseURL, 'https://opencode.ai/zen/go/v1')
+    assert.equal(config.models[0].baseURL, 'https://opencode.ai/inference/go/v1')
+    assert.equal(config.models[1].baseURL, 'https://opencode.ai/inference/go/v1')
     assert.deepEqual(Object.keys(llmProviders), ['inceptionlabs'])
 
     const adapter = adapters[0].adapter
@@ -439,7 +459,7 @@ describe('host routes', () => {
     // An interface override rewrites the endpoint for the new protocol.
     const interfaceChange = await post({ id: 'glm-5.2', api: 'anthropic-messages' })
     assert.equal(interfaceChange.body.model.api, 'anthropic-messages')
-    assert.equal(config.models[0].baseURL, 'https://opencode.ai/zen/go')
+    assert.equal(config.models[0].baseURL, 'https://opencode.ai/inference/go')
 
     assert.equal((await post({ id: 'absent', contextWindow: 5 })).status, 400)
     assert.equal((await post({ id: 'glm-5.2', contextWindow: -1 })).status, 400)

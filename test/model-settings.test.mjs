@@ -123,12 +123,16 @@ describe('model settings', () => {
   it('rewrites the endpoint when the interface changes', () => {
     const plan = planModelSettings(settings, { id: 'glm-5.2', api: 'anthropic-messages' })
     assert.equal(plan.models[0].api, 'anthropic-messages')
-    assert.equal(plan.models[0].baseURL, 'https://opencode.ai/zen/go')
+    // An interface change rebuilds the endpoint from the configured gateway
+    // root, so the row follows the profile's current endpoints.
+    assert.equal(plan.models[0].baseURL, 'https://opencode.ai/inference/go')
     const restored = planModelSettings(
       normalizeConfig({ ...settings, models: plan.models }),
       { id: 'glm-5.2', api: null },
     )
     assert.equal(restored.models[0].api, 'openai-completions')
+    // Reset restores the catalogue statement captured at import, not the
+    // profile's current endpoint defaults.
     assert.equal(restored.models[0].baseURL, 'https://opencode.ai/zen/go/v1')
   })
 

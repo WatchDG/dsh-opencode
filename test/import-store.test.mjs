@@ -42,9 +42,9 @@ describe('import store', () => {
     )
     const [first, second] = plan.models
     assert.equal(first.source, 'opencode-go')
-    assert.equal(first.baseURL, 'https://opencode.ai/zen/go/v1')
+    assert.equal(first.baseURL, 'https://opencode.ai/inference/go/v1')
     assert.equal(second.source, 'opencode-go')
-    assert.equal(second.baseURL, 'https://opencode.ai/zen/go')
+    assert.equal(second.baseURL, 'https://opencode.ai/inference/go')
   })
 
   it('keeps the submitted order and drops invalid rows with a reason', () => {
@@ -109,7 +109,7 @@ describe('import store', () => {
     assert.deepEqual(plan.models[0].defaults, {
       name: 'GLM-5.2',
       api: 'openai-completions',
-      baseURL: 'https://opencode.ai/zen/go/v1',
+      baseURL: 'https://opencode.ai/inference/go/v1',
       contextWindow: 1000000,
       maxTokens: 131072,
       input: ['text'],

@@ -4,6 +4,7 @@ import { describe, it } from 'node:test'
 import {
   Config,
   DEFAULT_CONTEXT_WINDOW,
+  DEFAULT_MAX_TOKENS,
   PRESETS,
   baseUrlFor,
   normalizeConfig,
@@ -24,8 +25,8 @@ describe('config', () => {
     assert.equal(settings.forceSessionHeader, true)
     assert.equal(settings.retireShipped, true)
     assert.deepEqual(settings.models, [])
-    assert.equal(settings.endpoints.opencode, 'https://opencode.ai/zen')
-    assert.equal(settings.endpoints['opencode-go'], 'https://opencode.ai/zen/go')
+    assert.equal(settings.endpoints.opencode, 'https://opencode.ai/inference')
+    assert.equal(settings.endpoints['opencode-go'], 'https://opencode.ai/inference/go')
     assert.equal(settings.targetApiKeyEnv.opencode, 'OPENCODE_API_KEY')
     assert.equal(settings.targetApiKeyEnv['opencode-go'], 'OPENCODE_GO_API_KEY')
   })
@@ -86,7 +87,8 @@ describe('config', () => {
     assert.equal(filled.enabled, true)
     assert.deepEqual(normalizeModel({ id: 'e', api: 'openai-completions', input: ['image', 'text', 'image'] }).input, ['text', 'image'])
     assert.equal(normalizeModel({ id: 'd', api: 'openai-completions', enabled: false }).enabled, false)
-    assert.equal(normalizeModel({ id: 'c', api: 'google-generative-ai' }), undefined)
+    assert.deepEqual(normalizeModel({ id: 'c', api: 'google-generative-ai' }).api, 'google-generative-ai')
+    assert.equal(normalizeModel({ id: 'c', api: 'acme-wire' }), undefined)
     assert.equal(normalizeModel({ id: 'a b', api: 'openai-completions' }), undefined)
     assert.equal(normalizeModel(null), undefined)
     assert.deepEqual(
@@ -119,7 +121,7 @@ describe('config', () => {
     })
     assert.equal(normalizeModel({ id: 'x', api: 'openai-completions' }).defaults, undefined)
     assert.equal(normalizeDefaults({}), undefined)
-    assert.deepEqual(normalizeDefaults({ contextWindow: '10', api: 'google-generative-ai' }), { contextWindow: 10 })
+    assert.deepEqual(normalizeDefaults({ contextWindow: '10', api: 'acme-wire' }), { contextWindow: 10 })
     assert.deepEqual(normalizeDefaults({ input: ['image', 'image', 'pdf'] }), { input: ['image'] })
   })
 
@@ -149,9 +151,10 @@ describe('config', () => {
   it('exposes the interface presets the dialog offers', () => {
     assert.deepEqual(
       PRESETS.map((preset) => preset.api),
-      ['openai-completions', 'openai-responses', 'anthropic-messages'],
+      ['openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai'],
     )
     assert.ok(PRESETS.every((preset) => typeof preset.label === 'string' && preset.label.length > 0))
-    assert.equal(DEFAULT_CONTEXT_WINDOW, 262_144)
+    assert.equal(DEFAULT_CONTEXT_WINDOW, 1_000_000)
+    assert.equal(DEFAULT_MAX_TOKENS, 128_000)
   })
 })

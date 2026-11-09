@@ -5,6 +5,7 @@ import {
   buildContext,
   buildPiModel,
   createAdapter,
+  sessionRouting,
   settingsHeaders,
   shippedModel,
   toPiContext,
@@ -79,7 +80,7 @@ describe('adapter', () => {
     assert.equal(model.id, 'glm-5.2')
     assert.equal(model.provider, 'opencode-live')
     assert.equal(model.api, 'openai-completions')
-    assert.equal(model.baseUrl, 'https://opencode.ai/zen/go/v1')
+    assert.equal(model.baseUrl, 'https://opencode.ai/inference/go/v1')
     assert.equal(model.contextWindow, 1000000)
     assert.equal(model.reasoning, true)
     assert.ok(model.compat !== undefined)
@@ -90,7 +91,7 @@ describe('adapter', () => {
     const model = buildPiModel(settings.models[2], settings, 'opencode-live')
     assert.equal(model.api, 'openai-responses')
     assert.equal(model.provider, 'opencode-live')
-    assert.equal(model.baseUrl, 'https://opencode.ai/zen/go/v1')
+    assert.equal(model.baseUrl, 'https://opencode.ai/inference/go/v1')
     assert.equal(model.contextWindow, 200000)
     assert.equal(model.maxTokens, 32000)
     assert.deepEqual(model.input, ['text', 'image'])
@@ -140,6 +141,19 @@ describe('adapter', () => {
   it('sends the static session header unless disabled', () => {
     assert.deepEqual(settingsHeaders(settings), { 'x-opencode-session': 'dsh-opencode' })
     assert.equal(settingsHeaders(normalizeConfig({ forceSessionHeader: false })), undefined)
+  })
+
+  it('routes a request by its harness session id, else by the static value', () => {
+    // A caller with a session id gets per-conversation routing; pi-ai's OpenCode
+    // wrapper adds the header itself, so no static header is passed alongside.
+    assert.deepEqual(sessionRouting(settings, { sessionId: 'session-abc' }), { sessionId: 'session-abc' })
+    // A sessionless call still carries the configured header.
+    assert.deepEqual(sessionRouting(settings, {}), {
+      sessionId: 'dsh-opencode',
+      headers: { 'x-opencode-session': 'dsh-opencode' },
+    })
+    // `forceSessionHeader: false` leaves even a sessionless call without one.
+    assert.deepEqual(sessionRouting(normalizeConfig({ forceSessionHeader: false }), {}), {})
   })
 
   it('converts a harness conversation to a pi-ai context', () => {
@@ -454,8 +468,70 @@ describe('adapter', () => {
     assert.deepEqual(chunks[9].reason, { kind: 'tool-calls' })
   })
 
-  it('turns a pi-ai error event into an error finish', async () => {
+  it('refuses a response whose final tool arguments did not parse', async () => {
     async function* events() {
+      yield { type: 'start', partial: {} }
+      yield {
+        type: 'toolcall_start',
+        contentIndex: 0,
+        partial: { content: [{ type: 'toolCall', id: 'call-1', name: 'read' }] },
+      }
+      yield { type: 'toolcall_delta', contentIndex: 0, delta: '{"path":', partial: {} }
+      yield {
+        type: 'toolcall_end',
+        contentIndex: 0,
+        toolCall: { id: 'call-1', name: 'read', arguments: {}, argumentsError: 'Unexpected end of JSON input' },
+      }
+      yield {
+        type: 'done',
+        message: {
+          model: 'glm-5.2',
+          content: [{ type: 'toolCall', id: 'call-1', name: 'read', arguments: {} }],
+          stopReason: 'toolUse',
+          usage: { input: 1, output: 1, totalTokens: 2, cacheRead: 0, cacheWrite: 0 },
+        },
+      }
+    }
+    const chunks = []
+    await assert.rejects(
+      async () => {
+        for await (const chunk of toStreamChunks(events(), 1000000)) chunks.push(chunk)
+      },
+      (error) => {
+        assert.equal(error.code, 'MALFORMED_RESPONSE')
+        assert.equal(error.failure.code, 'MALFORMED_RESPONSE')
+        assert.match(error.failure.message, /malformed tool arguments/)
+        return true
+      },
+    )
+    // The bogus call never completes, so the harness cannot execute it.
+    assert.equal(chunks.some((chunk) => chunk.type === 'block-end'), false)
+    assert.equal(chunks.at(-1).type, 'usage')
+  })
+
+  it('keeps a length-limited turn that also reported malformed arguments', async () => {
+    async function* events() {
+      yield {
+        type: 'toolcall_end',
+        contentIndex: 0,
+        toolCall: { id: 'call-1', name: 'read', arguments: {}, argumentsError: 'truncated' },
+      }
+      yield {
+        type: 'done',
+        message: {
+          model: 'glm-5.2',
+          content: [],
+          stopReason: 'length',
+          usage: { input: 1, output: 1, totalTokens: 2, cacheRead: 0, cacheWrite: 0 },
+        },
+      }
+    }
+    const chunks = []
+    for await (const chunk of toStreamChunks(events(), 1000000)) chunks.push(chunk)
+    assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'max-tokens' } })
+  })
+
+  it('turns a pi-ai error event into an error finish', async () => {    async function* events() {
       yield {
         type: 'error',
         error: {

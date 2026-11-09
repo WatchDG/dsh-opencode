@@ -1,4 +1,46 @@
-# Changelog
+﻿# Changelog
+
+## 0.4.0
+
+Targets DeepSeek Harness 0.2.2-rc.1: Google Generative AI joins the importable
+protocols, and each conversation is routed by its own session id.
+
+- Targets DeepSeek Harness 0.2.2-rc.1 (`engines.dsh` is `>=0.2.2-rc.1 <0.3.0-0`)
+  and pins the library versions that release ships: `@earendil-works/pi-ai`
+  1.3.0 (was 1.1.0) and `@deepseek-ai/schemastery` ~3.19.0 (was ~3.18.5). The pin
+  is what matters: the plugin imports pi-ai directly and resolves its own copy
+  from its checkout, so the host's bundled upgrade does not reach it without the
+  bump.
+- Google Generative AI (`google-generative-ai`) is a fourth importable protocol.
+  pi-ai 1.3.0 serves it from both OpenCode providers, the live gateways
+  advertise Gemini models (`gemini-4-argon` on both), and the import dialog
+  offers the protocol as a preset; catalogue rows for those models are no longer
+  dropped.
+- The gateway roots follow pi-ai 1.3.0's synced endpoints:
+  `https://opencode.ai/inference` and `https://opencode.ai/inference/go`. Both
+  `/zen` roots still answer and remain available through the `endpoints`
+  override; rows imported earlier keep the base URL captured at import.
+- `x-opencode-session` is no longer a fixed constant on every request. A request
+  that carries a harness session id routes by that id (pi-ai's OpenCode wrapper
+  adds the header), so each conversation gets its own gateway routing key;
+  `sessionId` / `forceSessionHeader` now describe the fallback for sessionless
+  calls.
+- A response whose final tool-call arguments did not parse is refused with
+  `MALFORMED_RESPONSE` instead of executing a tool with empty `{}` arguments.
+  pi-ai 1.3.0 stopped repairing malformed arguments; a length-limited turn keeps
+  its normal `max-tokens` finish.
+- A model that declares no capacity now defaults to 1,000,000 context and
+  128,000 output tokens (were 262,144 / 32,768), aligned with DSH 0.2.2's own
+  default for custom models.
+- Inherited from pi-ai 1.3.0: replayed reasoning from another model is dropped
+  instead of converted to visible text; Anthropic strict-tool requests fall back
+  on 400 grammar/size limits; images inside Anthropic error tool results are
+  split out instead of sent inline; OpenAI-compatible streams may order reasoning
+  before text.
+- Tests: 83 (was 80), with new coverage for the malformed-argument refusal,
+  session routing and the Google protocol. Route tests now isolate their
+  catalogue cache in a temporary directory instead of writing fixture metadata
+  into the live profile.
 
 ## 0.3.0
 
